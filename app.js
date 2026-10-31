@@ -104,26 +104,26 @@
   }
 
   function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
+    const R_YARDS = 6967410; // Earth radius in yards
     const toRad = (deg) => (deg * Math.PI) / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R_YARDS * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   function getRelativeMeters(lat1, lon1, lat2, lon2) {
-    const dy = (lat2 - lat1) * 111320;
-    const dx = (lon2 - lon1) * 111320 * Math.cos((lat1 * Math.PI) / 180);
+    const dy = (lat2 - lat1) * 121741; // yards per degree latitude
+    const dx = (lon2 - lon1) * 121741 * Math.cos((lat1 * Math.PI) / 180);
     return { dx, dy };
   }
 
-  function formatDistance(meters) {
-    if (meters < 1) return "<1m";
-    if (meters < 1000) return `${Math.round(meters)}m`;
-    return `${(meters / 1000).toFixed(1)}km`;
+  function formatDistance(yards) {
+    if (yards < 1) return "<1 yd";
+    if (yards < 1000) return `${Math.round(yards)} yd`;
+    return `${(yards / 1760).toFixed(1)} mi`;
   }
 
   // --- DOM REFERENCES ---
@@ -447,9 +447,9 @@
     state.maxRangeMeters = meters;
     const shortLabel = meters > 50000 ? "All" : formatDistance(meters);
     const descriptive = {
-      50: "50m (Room)",
-      250: "250m (Block)",
-      1500: "1.5km (Neighborhood)",
+      50: "50 yd (Room)",
+      250: "250 yd (Block)",
+      1760: "1 mi (Neighborhood)",
       99999999: "Global (Anywhere)",
     };
 
@@ -850,8 +850,8 @@
       logActivity("Sent proximity ping to nearby devices", "rx");
     });
 
-    // Walk Simulator Pad (15m steps)
-    const stepDeg = 15 / 111320;
+    // Walk Simulator Pad (15 yd steps)
+    const stepDeg = 15 / 121741;
     document.querySelectorAll(".step-btn[data-dir]").forEach((btn) => {
       btn.addEventListener("click", () => {
         state.usingRealGps = false;
