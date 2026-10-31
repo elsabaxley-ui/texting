@@ -20,15 +20,34 @@
     return cleaned.slice(0, 2).toUpperCase();
   }
 
-  // Ensure every browser tab/window has its own unique ID (even if tab is duplicated)
-  if (!window.name || !window.name.startsWith("closeby_peer_")) {
-    window.name = "closeby_peer_" + Math.random().toString(36).substring(2, 9);
+  function safeGetStorage(key) {
+    try {
+      return localStorage.getItem(key) || "";
+    } catch (e) {
+      return "";
+    }
   }
-  const savedId = window.name;
 
-  const savedHandle = localStorage.getItem("closeby_real_name") || "";
+  function safeSetStorage(key, val) {
+    try {
+      localStorage.setItem(key, val);
+    } catch (e) {}
+  }
+
+  // Ensure every browser tab/window has its own unique ID (even if tab is duplicated)
+  let savedId = "";
+  try {
+    if (!window.name || !window.name.startsWith("closeby_peer_")) {
+      window.name = "closeby_peer_" + Math.random().toString(36).substring(2, 9);
+    }
+    savedId = window.name;
+  } catch (e) {
+    savedId = "closeby_peer_" + Math.random().toString(36).substring(2, 9);
+  }
+
+  const savedHandle = safeGetStorage("closeby_real_name");
   const savedColor =
-    localStorage.getItem("closeby_badge_color") || PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    safeGetStorage("closeby_badge_color") || PALETTE[Math.floor(Math.random() * PALETTE.length)];
 
   const BASE_LAT = 40.7128;
   const BASE_LNG = -74.006;
@@ -172,34 +191,55 @@
   // --- TRANSPORTS ---
   let bcChannel = null;
   let mqttClient = null;
+  let lastPollTimestamp = 0;
+  let hasServerBackend = !location.hostname.endsWith("github.io");
   const MQTT_TOPIC = "firemesh/v1/global-mesh-bus";
 
   function initTransports() {
     if ("BroadcastChannel" in window) {
-      bcChannel = new BroadcastChannel("firemesh_local_bus");
-      bcChannel.onmessage = (ev) => {
-        if (ev.data) onIncomingPacket(ev.data, "Local");
-      };
-      state.transports.broadcast = true;
+      try {
+        bcChannel = new BroadcastChannel("firemesh_local_bus");
+        bcChannel.onmessage = (ev) => {
+          if (ev.data) onIncomingPacket(ev.data, "Local");
+        };
+        state.transports.broadcast = true;
+      } catch (e) {}
     }
 
-    try {
-      const evtSource = new EventSource("/api/stream");
-      evtSource.onopen = () => {
-        state.transports.localServer = true;
-        updateTransportStatus();
+    if (hasServerBackend) {
+      // 1. SSE Stream
+      try {
+        const evtSource = new EventSource("/api/stream");
+        evtSource.onopen = () => {
+          state.transports.localServer = true;
+          updateTransportStatus();
+        };
+        evtSource.onmessage = (ev) => {
+          try {
+            onIncomingPacket(JSON.parse(ev.data), "Server");
+          } catch (e) {}
+        };
+        evtSource.onerror = () => {
+          evtSource.close();
+        };
+      } catch (e) {}
+
+      // 2. Reliable HTTPS JSON Polling (works on all mobile carriers & tunnels)
+      const pollServer = () => {
+        fetch(`/api/poll?since=${lastPollTimestamp}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (!data || !Array.isArray(data.packets)) return;
+            state.transports.localServer = true;
+            updateTransportStatus();
+            if (data.now) lastPollTimestamp = data.now - 500;
+            data.packets.forEach((pkt) => onIncomingPacket(pkt, "Online"));
+          })
+          .catch(() => {});
       };
-      evtSource.onmessage = (ev) => {
-        try {
-          onIncomingPacket(JSON.parse(ev.data), "Wi-Fi");
-        } catch (e) {}
-      };
-      evtSource.onerror = () => {
-        state.transports.localServer = false;
-        updateTransportStatus();
-        evtSource.close();
-      };
-    } catch (e) {}
+      pollServer();
+      setInterval(pollServer, 1200);
+    }
 
     if (window.mqtt) {
       try {
@@ -237,9 +277,9 @@
 
   function updateTransportStatus() {
     if (state.transports.localServer && state.transports.cloudMqtt) {
-      dom.transportLabel.textContent = "Wi-Fi + Online";
+      dom.transportLabel.textContent = "Live Connected";
     } else if (state.transports.localServer) {
-      dom.transportLabel.textContent = "Local Wi-Fi";
+      dom.transportLabel.textContent = "Live Connected";
     } else if (state.transports.cloudMqtt) {
       dom.transportLabel.textContent = "Live Online";
     } else {
@@ -277,7 +317,7 @@
       } catch (e) {}
     }
 
-    if (state.transports.localServer) {
+    if (hasServerBackend) {
       fetch("/api/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -915,11 +955,11 @@
       if (val) {
         state.handle = val;
         state.hasCustomName = true;
-        localStorage.setItem("closeby_real_name", val);
+        safeSetStorage("closeby_real_name", val);
       }
       if (chosenDot) {
         state.color = chosenDot.dataset.color;
-        localStorage.setItem("closeby_badge_color", state.color);
+        safeSetStorage("closeby_badge_color", state.color);
       }
       syncIdentityUI();
       dom.profileModal.classList.add("hidden");

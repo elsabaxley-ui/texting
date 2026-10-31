@@ -1,8 +1,8 @@
 /**
- * FireMesh Local Wi-Fi & Development Server
+ * Closeby Local & Tunnel Relay Server
  * Zero external dependencies — uses built-in Node.js http, fs, path, os.
- * Serves the static app AND provides a local Wi-Fi SSE relay (/api/stream, /api/publish)
- * so devices on the same Wi-Fi can communicate even without internet!
+ * Supports both Server-Sent Events (/api/stream) AND fast JSON polling (/api/poll)
+ * so phones over cellular, Wi-Fi, or HTTPS tunnels work 100% reliably.
  */
 
 const http = require("http");
@@ -12,6 +12,8 @@ const os = require("os");
 
 const PORT = process.env.PORT || 3000;
 const sseClients = new Set();
+const recentPackets = []; // Rolling buffer of recent packets for instant phone sync
+const MAX_BUFFER = 80;
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -24,7 +26,6 @@ const MIME_TYPES = {
 };
 
 const server = http.createServer((req, res) => {
-  // CORS headers for local testing
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -35,30 +36,73 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 1. SSE Stream for Local Wi-Fi Mesh Relay
-  if (req.method === "GET" && req.url === "/api/stream") {
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+  // 1. SSE Stream for Real-Time Relay
+  if (req.method === "GET" && parsedUrl.pathname === "/api/stream") {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     });
     res.write(": connected\n\n");
-    sseClients.add(res);
 
+    // Send recent packets so newly connected phones immediately see active users & messages
+    const cutoff = Date.now() - 60000;
+    for (const item of recentPackets) {
+      if (item.serverTime >= cutoff) {
+        res.write(`data: ${item.raw}\n\n`);
+      }
+    }
+
+    sseClients.add(res);
     req.on("close", () => {
       sseClients.delete(res);
     });
     return;
   }
 
-  // 2. Publish Packet to Local Wi-Fi Mesh Relay
-  if (req.method === "POST" && req.url === "/api/publish") {
+  // 2. JSON Polling Endpoint (100% reliable fallback for mobile cellular & tunnels)
+  if (req.method === "GET" && parsedUrl.pathname === "/api/poll") {
+    const since = Number(parsedUrl.searchParams.get("since") || 0);
+    const items = recentPackets
+      .filter((item) => item.serverTime > since)
+      .map((item) => item.pkt);
+
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end(JSON.stringify({ now: Date.now(), packets: items }));
+    return;
+  }
+
+  // 3. Publish Packet
+  if (req.method === "POST" && parsedUrl.pathname === "/api/publish") {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
       if (body.length > 64 * 1024) req.destroy();
     });
     req.on("end", () => {
+      try {
+        const pkt = JSON.parse(body);
+        const now = Date.now();
+        // Replace older ANNOUNCE from the same sender to keep buffer fresh
+        if (pkt.type === "ANNOUNCE") {
+          for (let i = recentPackets.length - 1; i >= 0; i--) {
+            if (recentPackets[i].pkt.type === "ANNOUNCE" && recentPackets[i].pkt.senderId === pkt.senderId) {
+              recentPackets.splice(i, 1);
+            }
+          }
+        }
+        recentPackets.push({ serverTime: now, raw: body, pkt });
+        while (recentPackets.length > MAX_BUFFER) {
+          recentPackets.shift();
+        }
+      } catch (e) {}
+
       for (const client of sseClients) {
         client.write(`data: ${body}\n\n`);
       }
@@ -68,8 +112,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 3. Static File Server
-  let safeUrl = req.url.split("?")[0];
+  // 4. Static Files
+  let safeUrl = parsedUrl.pathname;
   if (safeUrl === "/") safeUrl = "/index.html";
 
   const filePath = path.join(__dirname, safeUrl);
@@ -86,7 +130,10 @@ const server = http.createServer((req, res) => {
       return;
     }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+      "Cache-Control": "no-cache",
+    });
     res.end(content);
   });
 });
@@ -105,7 +152,7 @@ function getLocalIp() {
 
 server.listen(PORT, "0.0.0.0", () => {
   const ip = getLocalIp();
-  console.log(`\n🔥 FireMesh Proximity Chat Server running!`);
+  console.log(`\n💬 Closeby Server running!`);
   console.log(`   ➜ Local Mac:   http://localhost:${PORT}`);
   console.log(`   ➜ Local Wi-Fi: http://${ip}:${PORT}  (Open on your phone!)`);
 });

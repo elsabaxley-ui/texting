@@ -1067,21 +1067,66 @@ body {
   display: none !important;
 }
 
-/* RESPONSIVE */
+/* RESPONSIVE (MOBILE PHONES & TABLETS) */
 @media (max-width: 860px) {
   body {
-    overflow: auto;
+    overflow-y: auto;
     height: auto;
+    min-height: 100dvh;
   }
   .app-wrapper {
     height: auto;
-    padding: 10px;
+    min-height: 100dvh;
+    padding: 8px 10px 14px;
+    gap: 10px;
+  }
+  .navbar {
+    flex-wrap: wrap;
+    border-radius: 18px;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .main-nav-tabs {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+  .nav-tab {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 13px;
   }
   .messenger-layout {
     grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .people-sidebar {
+    padding: 12px;
+    gap: 12px;
+    max-height: 210px;
+  }
+  .thread-header {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    gap: 8px;
   }
   .chat-stage {
-    height: 540px;
+    height: 64dvh;
+    min-height: 420px;
+  }
+  .messages-stream {
+    padding: 14px;
+  }
+  .msg-group {
+    max-width: 88%;
+  }
+  .composer-bar {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+  #messageInput, #handleInput {
+    font-size: 16px; /* Prevents iOS Safari auto-zoom on focus */
   }
   .radar-page-grid {
     grid-template-columns: 1fr;
