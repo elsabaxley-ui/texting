@@ -3,209 +3,253 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>FireMesh — Proximity & Mesh Chat</title>
+  <title>Closeby — Local Texting</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
-  <!-- MQTT.js for Serverless GitHub Pages Cross-Device Mesh -->
+  <!-- Serverless Cross-Device Relay for GitHub Pages -->
   <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
 </head>
 <body>
-  <div class="app-shell">
-    <!-- TOP BAR -->
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-icon">
-          <span class="pulse-dot"></span>
-          🔥
-        </div>
+  <div class="app-wrapper">
+    <!-- TOP NAVIGATION BAR -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="logo-mark">💬</div>
         <div>
-          <h1>FireMesh</h1>
-          <p class="subtitle">Proximity P2P &amp; Multi-Hop Chat</p>
+          <span class="brand-title">Closeby</span>
+          <span class="status-dot-wrap" id="transportStatus">
+            <span class="live-dot"></span>
+            <span id="transportLabel">Connected</span>
+          </span>
         </div>
       </div>
 
-      <div class="status-cluster">
-        <div class="status-pill" id="transportStatus" title="Active mesh transports">
-          <span class="status-indicator online"></span>
-          <span id="transportLabel">Mesh Active</span>
-        </div>
-        <div class="geohash-pill" id="geohashBadge" title="Your current Geohash cell">
-          📍 <span id="geohashText">dr5reg</span>
-        </div>
-        <button class="identity-btn" id="editProfileBtn" title="Change your display name">
-          <span class="avatar-dot" id="myAvatarDot"></span>
-          <span id="myHandleDisplay">Node-000</span>
-          <span class="edit-icon">✎</span>
+      <!-- MAIN VIEW SWITCHER TABS -->
+      <nav class="main-nav-tabs" role="tablist">
+        <button class="nav-tab active" data-view="chat" id="navChatBtn">
+          Messages
+          <span class="pill-count" id="peerCountBadge">0 nearby</span>
         </button>
-      </div>
+        <button class="nav-tab" data-view="radar" id="navRadarBtn">
+          Radar &amp; Range
+          <span class="pill-subtle" id="navRangeBadge">250m</span>
+        </button>
+      </nav>
+
+      <!-- USER PROFILE PILL -->
+      <button class="profile-trigger" id="editProfileBtn" title="Edit your name or initials">
+        <span class="initial-avatar" id="myAvatarBadge">EB</span>
+        <span class="profile-name" id="myHandleDisplay">Set Name</span>
+      </button>
     </header>
 
-    <!-- MAIN CONTENT GRID -->
-    <div class="main-grid">
-      <!-- LEFT SIDEBAR: RADAR, RANGE, PEERS, SIMULATOR -->
-      <aside class="sidebar">
-        <!-- RADAR CARD -->
-        <section class="panel radar-panel">
-          <div class="panel-header">
-            <h2>Proximity Radar</h2>
-            <span class="badge" id="peerCountBadge">0 nearby</span>
+    <!-- ==========================================
+         VIEW 1: MAIN TEXTING EXPERIENCE (DEFAULT)
+         ========================================== -->
+    <main class="view-container" id="chatView">
+      <div class="messenger-layout">
+        <!-- LEFT CONVERSATION / PEOPLE LIST -->
+        <aside class="people-sidebar">
+          <div class="sidebar-section">
+            <div class="section-title">Channels</div>
+            <button class="convo-item active" id="channelNearbyBtn">
+              <div class="convo-avatar broadcast-avatar">📍</div>
+              <div class="convo-info">
+                <div class="convo-top">
+                  <span class="convo-name">Everyone Nearby</span>
+                  <span class="range-tag" id="sidebarRangeTag">≤ 250m</span>
+                </div>
+                <div class="convo-preview">Broadcast to people in range</div>
+              </div>
+            </button>
           </div>
 
-          <div class="radar-container">
-            <canvas id="radarCanvas" width="260" height="260"></canvas>
-            <div class="radar-overlay-info">
-              <span id="radarScaleLabel">Range: 250m</span>
+          <div class="sidebar-section peers-section">
+            <div class="section-header-row">
+              <span class="section-title">People Around You</span>
+              <span class="unread-pill hidden" id="dmUnreadBadge">0 new</span>
+            </div>
+            <div class="people-list" id="peersList">
+              <div class="empty-people">
+                No one else is in range yet.<br />
+                <span>Open another tab or share the link with a friend nearby.</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- MAIN CHAT THREAD -->
+        <section class="chat-stage">
+          <!-- THREAD HEADER -->
+          <div class="thread-header">
+            <div class="thread-header-left">
+              <div class="thread-avatar" id="activeThreadAvatar">📍</div>
+              <div>
+                <h2 id="activeThreadTitle">Everyone Nearby</h2>
+                <p id="activeThreadSubtitle">People within 250m can see and relay these messages</p>
+              </div>
+            </div>
+
+            <!-- QUICK RANGE PILL IN HEADER -->
+            <div class="quick-range-switcher" id="quickRangeSwitcher">
+              <button class="q-range-btn" data-range="50">50m</button>
+              <button class="q-range-btn active" data-range="250">250m</button>
+              <button class="q-range-btn" data-range="1500">1.5km</button>
+              <button class="q-range-btn" data-range="99999999">All</button>
             </div>
           </div>
 
-          <!-- RANGE SELECTOR -->
-          <div class="range-selector">
-            <div class="range-label-row">
-              <span>Chat Reach Radius</span>
+          <!-- MESSAGES SCROLL STREAM -->
+          <div class="messages-stream" id="messagesContainer">
+            <div class="day-divider">
+              <span>Today • Local Proximity Chat</span>
+            </div>
+          </div>
+
+          <!-- COMPOSER BAR -->
+          <form class="composer-bar" id="messageForm">
+            <button type="button" class="icon-btn" id="shareLocationBtn" title="Share distance check-in">
+              📍 Check-in
+            </button>
+            <input
+              type="text"
+              id="messageInput"
+              placeholder="Write a message to people nearby..."
+              autocomplete="off"
+              maxlength="500"
+            />
+            <button type="submit" class="send-button">
+              Send
+            </button>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <!-- ==========================================
+         VIEW 2: RADAR, GPS & RANGE SETTINGS TAB
+         ========================================== -->
+    <section class="view-container hidden" id="radarView">
+      <div class="radar-page-grid">
+        <!-- RADAR VISUALIZER CARD -->
+        <div class="light-card radar-card">
+          <div class="card-header">
+            <div>
+              <h3>Proximity Map</h3>
+              <p>Live relative distance to people around you</p>
+            </div>
+            <button class="soft-btn" id="sendPingBtn">📡 Ping Nearby</button>
+          </div>
+
+          <div class="radar-canvas-wrap">
+            <canvas id="radarCanvas" width="320" height="320"></canvas>
+            <div class="radar-scale-pill" id="radarScaleLabel">Radius: 250m</div>
+          </div>
+
+          <div class="range-controls-block">
+            <div class="range-row-header">
+              <span>Active Reach Distance</span>
               <strong id="rangeValueText">250m (Block)</strong>
             </div>
-            <div class="range-buttons" id="rangeButtons">
-              <button class="range-btn" data-range="50">50m<span>Room</span></button>
-              <button class="range-btn active" data-range="250">250m<span>Block</span></button>
-              <button class="range-btn" data-range="1500">1.5km<span>Hood</span></button>
-              <button class="range-btn" data-range="99999999">Global<span>All</span></button>
+            <div class="segmented-control" id="rangeButtons">
+              <button class="seg-btn" data-range="50">50m <small>Room</small></button>
+              <button class="seg-btn active" data-range="250">250m <small>Block</small></button>
+              <button class="seg-btn" data-range="1500">1.5km <small>Area</small></button>
+              <button class="seg-btn" data-range="99999999">Global <small>Anywhere</small></button>
             </div>
-            <label class="mesh-hop-toggle">
+
+            <label class="toggle-row">
               <input type="checkbox" id="meshHopCheckbox" checked />
-              <span>Enable Multi-Hop Mesh Relay (extend range via peers)</span>
+              <span>Allow messages to hop through nearby devices to extend range</span>
             </label>
           </div>
-        </section>
+        </div>
 
-        <!-- LOCATION & SIMULATOR CONTROLS -->
-        <section class="panel location-panel">
-          <div class="panel-header">
-            <h2>Position &amp; Walk Simulator</h2>
-            <button class="mini-btn" id="useGpsBtn" title="Use real device GPS">📍 Real GPS</button>
-          </div>
-          <p class="helper-text">
-            Move your node to test walking closer or farther from other open tabs or devices:
-          </p>
-          <div class="walk-controls">
-            <button class="walk-btn" data-dir="NW">↖</button>
-            <button class="walk-btn" data-dir="N">↑ N (15m)</button>
-            <button class="walk-btn" data-dir="NE">↗</button>
-            <button class="walk-btn" data-dir="W">← W</button>
-            <button class="walk-btn center-btn" id="resetPosBtn" title="Reset to origin">🎯 Origin</button>
-            <button class="walk-btn" data-dir="E">E →</button>
-            <button class="walk-btn" data-dir="SW">↙</button>
-            <button class="walk-btn" data-dir="S">↓ S (15m)</button>
-            <button class="walk-btn" data-dir="SE">↘</button>
-          </div>
-          <div class="coords-readout" id="coordsReadout">
-            Lat: 40.71280 • Lng: -74.00600 (Simulated)
-          </div>
-        </section>
+        <!-- RIGHT COLUMN: LOCATION CONTROLS & ACTIVITY LOG -->
+        <div class="radar-side-column">
+          <div class="light-card">
+            <div class="card-header">
+              <div>
+                <h3>Your Position</h3>
+                <p>Use real GPS or test walking around</p>
+              </div>
+              <button class="soft-btn primary-soft" id="useGpsBtn">📍 Use Real GPS</button>
+            </div>
 
-        <!-- NEARBY NODES LIST -->
-        <section class="panel peers-panel">
-          <div class="panel-header">
-            <h2>Discovered Nodes</h2>
-            <button class="mini-btn" id="sendPingBtn">📡 Pulse Ping</button>
-          </div>
-          <div class="peers-list" id="peersList">
-            <div class="empty-peers">
-              Waiting for nearby nodes...<br />
-              <small>Open this page in another tab or phone to see instant discovery!</small>
+            <div class="walk-pad-wrap">
+              <p class="walk-hint">
+                Testing on one computer? Nudge your position by 15 meters to see how distance affects your chat:
+              </p>
+              <div class="walk-grid">
+                <button class="step-btn" data-dir="NW">↖</button>
+                <button class="step-btn" data-dir="N">↑ North (15m)</button>
+                <button class="step-btn" data-dir="NE">↗</button>
+                <button class="step-btn" data-dir="W">← West</button>
+                <button class="step-btn origin-btn" id="resetPosBtn">Center</button>
+                <button class="step-btn" data-dir="E">East →</button>
+                <button class="step-btn" data-dir="SW">↙</button>
+                <button class="step-btn" data-dir="S">↓ South (15m)</button>
+                <button class="step-btn" data-dir="SE">↘</button>
+              </div>
+              <div class="location-meta-bar">
+                <span id="coordsReadout">40.71280, -74.00600 (Test Mode)</span>
+                <span class="geohash-tag">Zone #<span id="geohashText">dr5reg</span></span>
+              </div>
             </div>
           </div>
-        </section>
-      </aside>
 
-      <!-- RIGHT CHAT & MESH AREA -->
-      <main class="chat-area">
-        <!-- CHANNEL TABS -->
-        <div class="channel-tabs">
-          <button class="tab-btn active" data-tab="nearby" id="tabNearbyBtn">
-            🔥 Nearby Broadcast
-            <span class="tab-sub" id="nearbyRangeSub">(≤ 250m)</span>
-          </button>
-          <button class="tab-btn" data-tab="direct" id="tabDirectBtn">
-            🔒 Direct P2P Chat
-            <span class="unread-badge hidden" id="dmUnreadBadge">0</span>
-          </button>
-          <button class="tab-btn" data-tab="meshlog" id="tabMeshlogBtn">
-            🕸️ Mesh Packet Log
-          </button>
-        </div>
-
-        <!-- DIRECT CHAT PEER BAR (Shown only in Direct tab) -->
-        <div class="dm-selector-bar hidden" id="dmSelectorBar">
-          <span>Chatting privately with:</span>
-          <select id="dmPeerSelect">
-            <option value="">Select a discovered node...</option>
-          </select>
-          <span class="e2e-badge">⚡ Hop-Routed P2P</span>
-        </div>
-
-        <!-- MESSAGES STREAM -->
-        <div class="messages-container" id="messagesContainer">
-          <!-- System welcome banner -->
-          <div class="system-welcome">
-            <div class="welcome-icon">🔥</div>
-            <h3>Welcome to FireMesh Proximity Chat</h3>
-            <p>
-              Messages sent here are automatically filtered by physical distance and relayed across nearby nodes (multi-hop mesh).
-            </p>
-            <div class="quick-tips">
-              <span>💡 <strong>Try it right now:</strong> Open a second browser tab or connect with your phone, then use the <strong>Position &amp; Walk Simulator</strong> to move within or outside range!</span>
+          <div class="light-card log-card">
+            <div class="card-header">
+              <div>
+                <h3>Relay Activity</h3>
+                <p>Recent proximity hops and discoveries</p>
+              </div>
+              <button class="text-btn" id="clearLogBtn">Clear</button>
+            </div>
+            <div class="activity-log-list" id="meshLogList">
+              <div class="log-placeholder">Activity will appear here as messages hop between devices.</div>
             </div>
           </div>
         </div>
-
-        <!-- MESH PACKET INSPECTOR (Shown only in Mesh Log tab) -->
-        <div class="mesh-log-container hidden" id="meshLogContainer">
-          <div class="mesh-log-header">
-            <span>Live Multi-Hop Packet Router (TTL &amp; Relay Inspector)</span>
-            <button class="mini-btn" id="clearLogBtn">Clear</button>
-          </div>
-          <div class="mesh-log-list" id="meshLogList"></div>
-        </div>
-
-        <!-- MESSAGE COMPOSER -->
-        <form class="composer" id="messageForm">
-          <button type="button" class="action-btn" id="shareLocationBtn" title="Broadcast a location flare">
-            📍 Flare
-          </button>
-          <input
-            type="text"
-            id="messageInput"
-            placeholder="Broadcast to nearby nodes within 250m..."
-            autocomplete="off"
-            maxlength="500"
-          />
-          <button type="submit" class="send-btn">
-            <span>Send</span>
-            <span class="send-arrow">↗</span>
-          </button>
-        </form>
-      </main>
-    </div>
+      </div>
+    </section>
   </div>
 
-  <!-- PROFILE MODAL -->
-  <div class="modal-backdrop hidden" id="profileModal">
-    <div class="modal-card">
-      <h3>Your Node Identity</h3>
-      <p>Choose your handle and node beacon color visible to nearby peers.</p>
-      <label class="field-label">Display Handle</label>
-      <input type="text" id="handleInput" maxlength="24" placeholder="e.g. CyberFox" />
-      <label class="field-label">Beacon Color</label>
-      <div class="color-swatches" id="colorSwatches">
-        <button type="button" class="swatch" data-color="#ff5722" style="background:#ff5722"></button>
-        <button type="button" class="swatch" data-color="#00e676" style="background:#00e676"></button>
-        <button type="button" class="swatch" data-color="#00b0ff" style="background:#00b0ff"></button>
-        <button type="button" class="swatch" data-color="#ffd600" style="background:#ffd600"></button>
-        <button type="button" class="swatch" data-color="#e040fb" style="background:#e040fb"></button>
-        <button type="button" class="swatch" data-color="#ff1744" style="background:#ff1744"></button>
+  <!-- ONBOARDING / NAME & INITIALS MODAL -->
+  <div class="modal-overlay hidden" id="profileModal">
+    <div class="modal-sheet">
+      <div class="modal-avatar-preview" id="modalAvatarPreview">EB</div>
+      <h3>What's your name?</h3>
+      <p>Enter your real name or initials so people nearby know who they're texting.</p>
+
+      <div class="form-group">
+        <label for="handleInput">Full Name or Initials</label>
+        <input
+          type="text"
+          id="handleInput"
+          maxlength="28"
+          placeholder="e.g. Elsa Baxley or EB"
+          autocomplete="name"
+        />
       </div>
-      <div class="modal-actions">
-        <button type="button" class="btn-secondary" id="closeModalBtn">Cancel</button>
-        <button type="button" class="btn-primary" id="saveProfileBtn">Save Identity</button>
+
+      <div class="form-group">
+        <label>Badge Color</label>
+        <div class="color-picker-row" id="colorSwatches">
+          <button type="button" class="color-dot" data-color="#E05A47" style="background:#E05A47"></button>
+          <button type="button" class="color-dot" data-color="#2E7D6B" style="background:#2E7D6B"></button>
+          <button type="button" class="color-dot" data-color="#3B6FD8" style="background:#3B6FD8"></button>
+          <button type="button" class="color-dot" data-color="#D9822B" style="background:#D9822B"></button>
+          <button type="button" class="color-dot" data-color="#8E55EA" style="background:#8E55EA"></button>
+          <button type="button" class="color-dot" data-color="#C94A7C" style="background:#C94A7C"></button>
+        </div>
+      </div>
+
+      <div class="modal-buttons">
+        <button type="button" class="btn-ghost" id="closeModalBtn">Cancel</button>
+        <button type="button" class="btn-solid" id="saveProfileBtn">Save &amp; Continue</button>
       </div>
     </div>
   </div>
