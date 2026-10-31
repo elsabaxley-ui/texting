@@ -20,17 +20,15 @@
     return cleaned.slice(0, 2).toUpperCase();
   }
 
-  const savedId =
-    sessionStorage.getItem("closeby_node_id") || "peer-" + Math.random().toString(36).substring(2, 9);
-  sessionStorage.setItem("closeby_node_id", savedId);
+  // Ensure every browser tab/window has its own unique ID (even if tab is duplicated)
+  if (!window.name || !window.name.startsWith("closeby_peer_")) {
+    window.name = "closeby_peer_" + Math.random().toString(36).substring(2, 9);
+  }
+  const savedId = window.name;
 
   const savedHandle = localStorage.getItem("closeby_real_name") || "";
   const savedColor =
     localStorage.getItem("closeby_badge_color") || PALETTE[Math.floor(Math.random() * PALETTE.length)];
-
-  // Slight random initial offset (~10m to 55m) per tab so multiple tabs appear at distinct spots
-  const initialLatOffset = (Math.random() - 0.5) * 0.00055;
-  const initialLngOffset = (Math.random() - 0.5) * 0.00055;
 
   const BASE_LAT = 40.7128;
   const BASE_LNG = -74.006;
@@ -40,9 +38,10 @@
     handle: savedHandle || "Elsa B.",
     hasCustomName: Boolean(savedHandle),
     color: savedColor,
-    lat: BASE_LAT + initialLatOffset,
-    lng: BASE_LNG + initialLngOffset,
+    lat: BASE_LAT,
+    lng: BASE_LNG,
     usingRealGps: false,
+    gpsAccuracyYards: null,
     maxRangeMeters: 250,
     enableMultiHop: true,
     activeMainView: "chat", // 'chat' | 'radar'
@@ -257,6 +256,7 @@
       senderColor: state.color,
       lat: state.lat,
       lng: state.lng,
+      hasGps: state.usingRealGps,
       geohash: encodeGeohash(state.lat, state.lng, 7),
       maxRange: state.maxRangeMeters,
       targetId,
@@ -292,6 +292,13 @@
     }
   }
 
+  function computePeerDistance(peerLat, peerLng, peerHasGps) {
+    if (state.usingRealGps && peerHasGps) {
+      return calculateDistanceMeters(state.lat, state.lng, peerLat, peerLng);
+    }
+    return 0;
+  }
+
   // --- PACKET HANDLING & MULTI-HOP RELAY ---
   function onIncomingPacket(pkt, via) {
     if (!pkt || !pkt.id || pkt.senderId === state.nodeId) return;
@@ -303,7 +310,7 @@
       state.seenPacketIds.delete(oldest);
     }
 
-    const distanceMeters = calculateDistanceMeters(state.lat, state.lng, pkt.lat, pkt.lng);
+    const distanceMeters = computePeerDistance(pkt.lat, pkt.lng, pkt.hasGps);
     const existing = state.peers.get(pkt.senderId);
 
     state.peers.set(pkt.senderId, {
@@ -313,6 +320,7 @@
       color: pkt.senderColor || "#2E7D6B",
       lat: pkt.lat,
       lng: pkt.lng,
+      hasGps: Boolean(pkt.hasGps),
       geohash: pkt.geohash,
       distance: distanceMeters,
       lastSeen: Date.now(),
@@ -414,7 +422,7 @@
         state.peers.delete(id);
         changed = true;
       } else {
-        peer.distance = calculateDistanceMeters(state.lat, state.lng, peer.lat, peer.lng);
+        peer.distance = computePeerDistance(peer.lat, peer.lng, peer.hasGps);
       }
     }
     if (changed) renderSidebarPeople();
@@ -433,12 +441,15 @@
   function updateLocationReadout() {
     const gh = encodeGeohash(state.lat, state.lng, 7);
     dom.geohashText.textContent = gh;
-    dom.coordsReadout.textContent = `${state.lat.toFixed(5)}, ${state.lng.toFixed(5)} (${
-      state.usingRealGps ? "Real GPS" : "Test Mode"
-    })`;
+    if (state.usingRealGps) {
+      const acc = state.gpsAccuracyYards ? ` • ±${Math.round(state.gpsAccuracyYards)} yd` : "";
+      dom.coordsReadout.textContent = `Live GPS Active (${state.lat.toFixed(5)}, ${state.lng.toFixed(5)}${acc})`;
+    } else {
+      dom.coordsReadout.textContent = `Local Network (Allow Location for exact yard distance)`;
+    }
 
     for (const peer of state.peers.values()) {
-      peer.distance = calculateDistanceMeters(state.lat, state.lng, peer.lat, peer.lng);
+      peer.distance = computePeerDistance(peer.lat, peer.lng, peer.hasGps);
     }
     renderSidebarPeople();
   }
@@ -689,11 +700,21 @@
     const visualRangeMeters = state.maxRangeMeters > 50000 ? 500 : state.maxRangeMeters;
 
     // Draw discovered people with their Initials
+    let peerIdx = 0;
     for (const peer of state.peers.values()) {
-      const { dx, dy } = getRelativeMeters(state.lat, state.lng, peer.lat, peer.lng);
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const ratio = Math.min(dist / visualRangeMeters, 1.05);
-      const angle = Math.atan2(-dy, dx);
+      peerIdx++;
+      const dist = computePeerDistance(peer.lat, peer.lng, peer.hasGps);
+      let angle = 0;
+      let ratio = 0.22;
+
+      if (state.usingRealGps && peer.hasGps && dist >= 1) {
+        const { dx, dy } = getRelativeMeters(state.lat, state.lng, peer.lat, peer.lng);
+        ratio = Math.max(0.18, Math.min(dist / visualRangeMeters, 1.05));
+        angle = Math.atan2(-dy, dx);
+      } else {
+        // Same spot (<1 yd): space peers neatly around inner ring so badges don't overlap center
+        angle = (peerIdx * 2.1) % (Math.PI * 2);
+      }
 
       const px = cx + Math.cos(angle) * (ratio * maxR);
       const py = cy + Math.sin(angle) * (ratio * maxR);
@@ -850,50 +871,8 @@
       logActivity("Sent proximity ping to nearby devices", "rx");
     });
 
-    // Walk Simulator Pad (15 yd steps)
-    const stepDeg = 15 / 121741;
-    document.querySelectorAll(".step-btn[data-dir]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.usingRealGps = false;
-        const dir = btn.dataset.dir;
-        if (dir.includes("N")) state.lat += stepDeg;
-        if (dir.includes("S")) state.lat -= stepDeg;
-        if (dir.includes("E")) state.lng += stepDeg / Math.cos((state.lat * Math.PI) / 180);
-        if (dir.includes("W")) state.lng -= stepDeg / Math.cos((state.lat * Math.PI) / 180);
-        updateLocationReadout();
-        broadcastAnnounce();
-      });
-    });
-
-    dom.resetPosBtn.addEventListener("click", () => {
-      state.usingRealGps = false;
-      state.lat = BASE_LAT;
-      state.lng = BASE_LNG;
-      updateLocationReadout();
-      broadcastAnnounce();
-    });
-
     dom.useGpsBtn.addEventListener("click", () => {
-      if (!navigator.geolocation) {
-        alert("Geolocation is not supported by your browser.");
-        return;
-      }
-      dom.useGpsBtn.textContent = "Locating...";
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          state.usingRealGps = true;
-          state.lat = pos.coords.latitude;
-          state.lng = pos.coords.longitude;
-          dom.useGpsBtn.textContent = "📍 Real GPS Active";
-          updateLocationReadout();
-          broadcastAnnounce();
-        },
-        () => {
-          dom.useGpsBtn.textContent = "📍 Use Real GPS";
-          alert("Could not access GPS — using test coordinates instead.");
-        },
-        { enableHighAccuracy: true, timeout: 8000 }
-      );
+      startLiveGps(true);
     });
 
     dom.clearLogBtn.addEventListener("click", () => {
@@ -961,6 +940,47 @@
       .replace(/"/g, "&quot;");
   }
 
+  let gpsWatchId = null;
+
+  function startLiveGps(showAlertOnError = false) {
+    if (!navigator.geolocation) {
+      if (showAlertOnError) alert("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    if (dom.useGpsBtn) dom.useGpsBtn.textContent = "Locating...";
+
+    const onGpsSuccess = (pos) => {
+      state.usingRealGps = true;
+      state.lat = pos.coords.latitude;
+      state.lng = pos.coords.longitude;
+      state.gpsAccuracyYards = (pos.coords.accuracy || 10) * 1.09361; // meters to yards
+      if (dom.useGpsBtn) dom.useGpsBtn.textContent = "📍 Live GPS On";
+      updateLocationReadout();
+      broadcastAnnounce();
+    };
+
+    const onGpsError = () => {
+      if (dom.useGpsBtn) dom.useGpsBtn.textContent = "📍 Enable GPS";
+      if (showAlertOnError) {
+        alert("Please allow Location access in your browser settings for exact yard distance.");
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, {
+      enableHighAccuracy: true,
+      timeout: 8000,
+      maximumAge: 10000,
+    });
+
+    if (gpsWatchId === null) {
+      gpsWatchId = navigator.geolocation.watchPosition(onGpsSuccess, () => {}, {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+      });
+    }
+  }
+
   function init() {
     syncIdentityUI();
     updateLocationReadout();
@@ -968,6 +988,7 @@
     renderMessages();
     bindEvents();
     initTransports();
+    startLiveGps(false);
     requestAnimationFrame(drawRadar);
 
     setTimeout(broadcastAnnounce, 200);

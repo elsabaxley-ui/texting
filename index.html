@@ -167,35 +167,21 @@
           </div>
         </div>
 
-        <!-- RIGHT COLUMN: LOCATION CONTROLS & ACTIVITY LOG -->
+        <!-- RIGHT COLUMN: LOCATION STATUS & ACTIVITY LOG -->
         <div class="radar-side-column">
           <div class="light-card">
             <div class="card-header">
               <div>
-                <h3>Your Position</h3>
-                <p>Use real GPS or test walking around</p>
+                <h3>Live GPS Location</h3>
+                <p id="gpsStatusSubtitle">Automatically measuring real distance between devices</p>
               </div>
-              <button class="soft-btn primary-soft" id="useGpsBtn">📍 Use Real GPS</button>
+              <button class="soft-btn primary-soft" id="useGpsBtn">📍 Refresh GPS</button>
             </div>
 
             <div class="walk-pad-wrap">
-              <p class="walk-hint">
-                Testing on one computer? Nudge your position by 15 yards to see how distance affects your chat:
-              </p>
-              <div class="walk-grid">
-                <button class="step-btn" data-dir="NW">↖</button>
-                <button class="step-btn" data-dir="N">↑ North (15 yd)</button>
-                <button class="step-btn" data-dir="NE">↗</button>
-                <button class="step-btn" data-dir="W">← West</button>
-                <button class="step-btn origin-btn" id="resetPosBtn">Center</button>
-                <button class="step-btn" data-dir="E">East →</button>
-                <button class="step-btn" data-dir="SW">↙</button>
-                <button class="step-btn" data-dir="S">↓ South (15 yd)</button>
-                <button class="step-btn" data-dir="SE">↘</button>
-              </div>
               <div class="location-meta-bar">
-                <span id="coordsReadout">40.71280, -74.00600 (Test Mode)</span>
-                <span class="geohash-tag">Zone #<span id="geohashText">dr5reg</span></span>
+                <span id="coordsReadout">Acquiring live GPS fix...</span>
+                <span class="geohash-tag">Zone #<span id="geohashText">local</span></span>
               </div>
             </div>
           </div>
