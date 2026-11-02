@@ -190,10 +190,14 @@
 
   // --- TRANSPORTS ---
   let bcChannel = null;
-  let mqttClient = null;
+  const mqttClients = [];
   let lastPollTimestamp = 0;
-  let hasServerBackend = !location.hostname.endsWith("github.io");
-  const MQTT_TOPIC = "firemesh/v1/global-mesh-bus";
+  const hasServerBackend =
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname.startsWith("192.168.") ||
+    location.hostname.endsWith(".lhr.life");
+  const MQTT_TOPIC = "closeby/v2/global-mesh-bus";
 
   function initTransports() {
     if ("BroadcastChannel" in window) {
@@ -224,7 +228,7 @@
         };
       } catch (e) {}
 
-      // 2. Reliable HTTPS JSON Polling (works on all mobile carriers & tunnels)
+      // 2. Reliable HTTPS JSON Polling
       const pollServer = () => {
         fetch(`/api/poll?since=${lastPollTimestamp}`)
           .then((r) => (r.ok ? r.json() : null))
@@ -241,35 +245,46 @@
       setInterval(pollServer, 1200);
     }
 
+    // 3. Multi-Broker Serverless WebSocket Relay (Port 443 + 8084 + 8884 for 100% phone/firewall compatibility)
     if (window.mqtt) {
-      try {
-        mqttClient = window.mqtt.connect("wss://broker.emqx.io:8084/mqtt", {
-          clientId: "closeby_" + state.nodeId + "_" + Math.random().toString(16).slice(2, 6),
-          clean: true,
-          connectTimeout: 5000,
-          reconnectPeriod: 4000,
-        });
+      const BROKERS = [
+        "wss://mqtt.eclipseprojects.io:443/mqtt",
+        "wss://broker.emqx.io:8084/mqtt",
+        "wss://broker.hivemq.com:8884/mqtt",
+      ];
 
-        mqttClient.on("connect", () => {
-          state.transports.cloudMqtt = true;
-          updateTransportStatus();
-          mqttClient.subscribe(MQTT_TOPIC, { qos: 0 });
-          broadcastAnnounce();
-        });
+      BROKERS.forEach((brokerUrl) => {
+        try {
+          const client = window.mqtt.connect(brokerUrl, {
+            clientId: "cb_" + state.nodeId + "_" + Math.random().toString(16).slice(2, 6),
+            clean: true,
+            connectTimeout: 5000,
+            reconnectPeriod: 4000,
+          });
 
-        mqttClient.on("message", (topic, payload) => {
-          if (topic === MQTT_TOPIC) {
-            try {
-              onIncomingPacket(JSON.parse(payload.toString()), "Online");
-            } catch (e) {}
-          }
-        });
+          client.on("connect", () => {
+            state.transports.cloudMqtt = true;
+            updateTransportStatus();
+            client.subscribe(MQTT_TOPIC, { qos: 0 });
+            broadcastAnnounce();
+          });
 
-        mqttClient.on("close", () => {
-          state.transports.cloudMqtt = false;
-          updateTransportStatus();
-        });
-      } catch (e) {}
+          client.on("message", (topic, payload) => {
+            if (topic === MQTT_TOPIC) {
+              try {
+                onIncomingPacket(JSON.parse(payload.toString()), "Online");
+              } catch (e) {}
+            }
+          });
+
+          client.on("close", () => {
+            state.transports.cloudMqtt = mqttClients.some((c) => c.connected);
+            updateTransportStatus();
+          });
+
+          mqttClients.push(client);
+        } catch (e) {}
+      });
     }
 
     updateTransportStatus();
@@ -325,11 +340,13 @@
       }).catch(() => {});
     }
 
-    if (mqttClient && state.transports.cloudMqtt) {
-      try {
-        mqttClient.publish(MQTT_TOPIC, JSON.stringify(pkt));
-      } catch (e) {}
-    }
+    mqttClients.forEach((client) => {
+      if (client && client.connected) {
+        try {
+          client.publish(MQTT_TOPIC, JSON.stringify(pkt));
+        } catch (e) {}
+      }
+    });
   }
 
   function computePeerDistance(peerLat, peerLng, peerHasGps) {
