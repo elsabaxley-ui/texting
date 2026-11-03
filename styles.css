@@ -993,7 +993,7 @@ body {
   margin-bottom: 6px;
 }
 
-#handleInput {
+#handleInput, #pinInput {
   width: 100%;
   background: var(--bg-page);
   border: 1px solid var(--border-strong);
@@ -1005,7 +1005,12 @@ body {
   outline: none;
 }
 
-#handleInput:focus {
+#pinInput {
+  letter-spacing: 3px;
+  font-weight: 700;
+}
+
+#handleInput:focus, #pinInput:focus {
   border-color: var(--accent);
   background: var(--bg-surface);
 }

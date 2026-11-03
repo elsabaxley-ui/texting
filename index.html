@@ -8,11 +8,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
-  <!-- Serverless Cross-Device Relay for GitHub Pages / Vercel -->
+  <!-- Serverless Cross-Device Relay -->
   <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
-  <!-- Firebase Auth for Real Google Sign-In -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 </head>
 <body>
   <div class="app-wrapper">
@@ -206,39 +203,69 @@
     </section>
   </div>
 
-  <!-- GOOGLE AUTH & VERIFIED PROFILE MODAL -->
+  <!-- PIN-PROTECTED REAL NAME & LOCKED PROFILE MODAL -->
   <div class="modal-overlay hidden" id="profileModal">
     <div class="modal-sheet">
-      <div class="modal-avatar-preview" id="modalAvatarPreview">G</div>
+      <div class="modal-avatar-preview" id="modalAvatarPreview">EB</div>
 
-      <!-- STATE A: SIGNED OUT (GOOGLE SIGN-IN REQUIRED) -->
+      <!-- STATE A: FIRST-TIME NAME + 4-DIGIT PIN CLAIM -->
       <div id="authSignedOutSection">
-        <h3>Sign in to Closeby</h3>
+        <h3>Claim Your Real Name</h3>
         <p>
-          To prevent catfishing and fake names, everyone signs in with Google so your real verified name is used.
+          Your name is locked with a <strong>4-digit secret PIN</strong> so nobody else can impersonate or catfish as you.
         </p>
 
-        <button type="button" class="google-signin-btn" id="googleSignInBtn">
-          <svg class="google-icon" viewBox="0 0 24 24" width="20" height="20">
-            <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
-            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24z"/>
-            <path fill="#FBBC05" d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14z"/>
-            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96z"/>
-          </svg>
-          <span>Continue with Google</span>
-        </button>
+        <div class="form-group">
+          <label for="handleInput">Your First &amp; Last Name</label>
+          <input
+            type="text"
+            id="handleInput"
+            maxlength="28"
+            placeholder="e.g. Elsa Baxley"
+            autocomplete="name"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="pinInput">4-Digit Secret PIN (Protects your name)</label>
+          <input
+            type="password"
+            id="pinInput"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="4"
+            placeholder="•••• (4 digits)"
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Badge Color</label>
+          <div class="color-picker-row" id="claimColorSwatches">
+            <button type="button" class="color-dot selected" data-color="#E05A47" style="background:#E05A47"></button>
+            <button type="button" class="color-dot" data-color="#2E7D6B" style="background:#2E7D6B"></button>
+            <button type="button" class="color-dot" data-color="#3B6FD8" style="background:#3B6FD8"></button>
+            <button type="button" class="color-dot" data-color="#D9822B" style="background:#D9822B"></button>
+            <button type="button" class="color-dot" data-color="#8E55EA" style="background:#8E55EA"></button>
+            <button type="button" class="color-dot" data-color="#C94A7C" style="background:#C94A7C"></button>
+          </div>
+        </div>
 
         <div class="auth-error-box hidden" id="authErrorBox"></div>
+
+        <div class="modal-buttons">
+          <button type="button" class="btn-solid" id="claimIdentityBtn">🔒 Lock Name &amp; Join</button>
+        </div>
       </div>
 
-      <!-- STATE B: SIGNED IN (LOCKED VERIFIED GOOGLE IDENTITY) -->
+      <!-- STATE B: LOCKED IDENTITY (NO NAME CHANGING ALLOWED) -->
       <div id="authSignedInSection" class="hidden">
-        <div class="verified-badge-pill">✓ Verified Google Identity</div>
+        <div class="verified-badge-pill">🔒 PIN-Protected Identity</div>
         <h3 id="verifiedNameHeading">Elsa Baxley</h3>
-        <p id="verifiedEmailSub">elsa@example.com</p>
+        <p id="verifiedTagSub">Verified Tag #4F8A</p>
 
         <div class="locked-name-notice">
-          🔒 Your display name is locked to your Google account so no one can impersonate you.
+          ✓ Your name is permanently locked to your 4-digit PIN. No one else can use your name without your PIN.
         </div>
 
         <div class="form-group">
@@ -254,7 +281,6 @@
         </div>
 
         <div class="modal-buttons">
-          <button type="button" class="btn-ghost" id="signOutBtn">Sign Out</button>
           <button type="button" class="btn-solid" id="saveProfileBtn">Done</button>
         </div>
       </div>

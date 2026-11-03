@@ -13,7 +13,15 @@ const os = require("os");
 const PORT = process.env.PORT || 3000;
 const sseClients = new Set();
 const recentPackets = []; // Rolling buffer of recent packets for instant phone sync
+const nameRegistry = new Map(); // normalizedName -> identityTag
 const MAX_BUFFER = 80;
+
+function normalizeName(str) {
+  return String(str || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -70,16 +78,21 @@ const server = http.createServer((req, res) => {
       .filter((item) => item.serverTime > since)
       .map((item) => item.pkt);
 
+    const names = {};
+    for (const [normName, tag] of nameRegistry.entries()) {
+      names[normName] = tag;
+    }
+
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
     });
-    res.end(JSON.stringify({ now: Date.now(), packets: items }));
+    res.end(JSON.stringify({ now: Date.now(), packets: items, names }));
     return;
   }
 
-  // 3. Publish Packet
-  if (req.method === "POST" && parsedUrl.pathname === "/api/publish") {
+  // 3. Publish Packet or Claim Name
+  if (req.method === "POST" && (parsedUrl.pathname === "/api/publish" || parsedUrl.pathname === "/api/claim")) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
@@ -88,6 +101,29 @@ const server = http.createServer((req, res) => {
     req.on("end", () => {
       try {
         const pkt = JSON.parse(body);
+        if (pkt.senderHandle && pkt.identityTag) {
+          const norm = normalizeName(pkt.senderHandle);
+          const existingTag = nameRegistry.get(norm);
+          if (existingTag && existingTag !== pkt.identityTag) {
+            res.writeHead(409, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                ok: false,
+                error: "NAME_TAKEN",
+                message: `"${pkt.senderHandle}" is already PIN-locked by another user. Enter the matching 4-digit PIN if this is your name.`,
+              })
+            );
+            return;
+          }
+          nameRegistry.set(norm, pkt.identityTag);
+        }
+
+        if (parsedUrl.pathname === "/api/claim") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+          return;
+        }
+
         const now = Date.now();
         // Replace older ANNOUNCE from the same sender to keep buffer fresh
         if (pkt.type === "ANNOUNCE") {

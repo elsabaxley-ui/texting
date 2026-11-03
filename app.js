@@ -45,21 +45,45 @@
     savedId = "closeby_peer_" + Math.random().toString(36).substring(2, 9);
   }
 
-  const savedHandle = safeGetStorage("closeby_google_name");
-  const savedEmail = safeGetStorage("closeby_google_email");
-  const savedUid = safeGetStorage("closeby_google_uid");
+  function normalizeName(str) {
+    return String(str || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  // Deterministic 4-character cryptographic tag from (Normalized Name + 4-Digit Secret PIN)
+  function computeIdentityTag(nameStr, pinStr) {
+    const input = normalizeName(nameStr) + "::pin::" + String(pinStr || "").trim();
+    let h1 = 0xdeadbeef ^ input.length;
+    let h2 = 0x41c6ce57 ^ input.length;
+    for (let i = 0; i < input.length; i++) {
+      const ch = input.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    return ((h1 >>> 0) & 0xffff).toString(16).toUpperCase().padStart(4, "0");
+  }
+
+  const savedHandle = safeGetStorage("closeby_locked_name");
+  const savedTag = safeGetStorage("closeby_identity_tag");
   const savedColor =
     safeGetStorage("closeby_badge_color") || PALETTE[Math.floor(Math.random() * PALETTE.length)];
 
   const BASE_LAT = 40.7128;
   const BASE_LNG = -74.006;
 
+  const knownNames = new Map(); // normalizedName -> identityTag
+  if (savedHandle && savedTag) {
+    knownNames.set(normalizeName(savedHandle), savedTag);
+  }
+
   const state = {
     nodeId: savedId,
-    handle: savedHandle || "Sign In",
-    email: savedEmail || "",
-    googleUid: savedUid || "",
-    isVerified: Boolean(savedUid && savedHandle),
+    handle: savedHandle || "Set Name",
+    identityTag: savedTag || "",
+    isVerified: Boolean(savedHandle && savedTag),
     color: savedColor,
     lat: BASE_LAT,
     lng: BASE_LNG,
@@ -188,12 +212,14 @@
     modalAvatarPreview: document.getElementById("modalAvatarPreview"),
     authSignedOutSection: document.getElementById("authSignedOutSection"),
     authSignedInSection: document.getElementById("authSignedInSection"),
-    googleSignInBtn: document.getElementById("googleSignInBtn"),
+    handleInput: document.getElementById("handleInput"),
+    pinInput: document.getElementById("pinInput"),
+    claimColorSwatches: document.getElementById("claimColorSwatches"),
+    claimIdentityBtn: document.getElementById("claimIdentityBtn"),
     authErrorBox: document.getElementById("authErrorBox"),
     verifiedNameHeading: document.getElementById("verifiedNameHeading"),
-    verifiedEmailSub: document.getElementById("verifiedEmailSub"),
+    verifiedTagSub: document.getElementById("verifiedTagSub"),
     colorSwatches: document.getElementById("colorSwatches"),
-    signOutBtn: document.getElementById("signOutBtn"),
     saveProfileBtn: document.getElementById("saveProfileBtn"),
   };
 
@@ -205,7 +231,8 @@
     location.hostname === "localhost" ||
     location.hostname === "127.0.0.1" ||
     location.hostname.startsWith("192.168.") ||
-    location.hostname.endsWith(".lhr.life");
+    location.hostname.endsWith(".lhr.life") ||
+    location.hostname.endsWith(".vercel.app");
   const MQTT_TOPIC = "closeby/v2/global-mesh-bus";
 
   function initTransports() {
@@ -220,33 +247,42 @@
     }
 
     if (hasServerBackend) {
-      // 1. SSE Stream
-      try {
-        const evtSource = new EventSource("/api/stream");
-        evtSource.onopen = () => {
-          state.transports.localServer = true;
-          updateTransportStatus();
-        };
-        evtSource.onmessage = (ev) => {
-          try {
-            onIncomingPacket(JSON.parse(ev.data), "Server");
-          } catch (e) {}
-        };
-        evtSource.onerror = () => {
-          evtSource.close();
-        };
-      } catch (e) {}
+      // 1. SSE Stream (for local server)
+      if (!location.hostname.endsWith(".vercel.app")) {
+        try {
+          const evtSource = new EventSource("/api/stream");
+          evtSource.onopen = () => {
+            state.transports.localServer = true;
+            updateTransportStatus();
+          };
+          evtSource.onmessage = (ev) => {
+            try {
+              onIncomingPacket(JSON.parse(ev.data), "Server");
+            } catch (e) {}
+          };
+          evtSource.onerror = () => {
+            evtSource.close();
+          };
+        } catch (e) {}
+      }
 
-      // 2. Reliable HTTPS JSON Polling
+      // 2. Reliable HTTPS JSON Polling (works on school Chromebooks, Vercel & mobile)
       const pollServer = () => {
         fetch(`/api/poll?since=${lastPollTimestamp}`)
           .then((r) => (r.ok ? r.json() : null))
           .then((data) => {
-            if (!data || !Array.isArray(data.packets)) return;
+            if (!data) return;
             state.transports.localServer = true;
             updateTransportStatus();
-            if (data.now) lastPollTimestamp = data.now - 500;
-            data.packets.forEach((pkt) => onIncomingPacket(pkt, "Online"));
+            if (data.names && typeof data.names === "object") {
+              Object.entries(data.names).forEach(([norm, tag]) => {
+                if (!knownNames.has(norm)) knownNames.set(norm, tag);
+              });
+            }
+            if (Array.isArray(data.packets)) {
+              if (data.now) lastPollTimestamp = data.now - 500;
+              data.packets.forEach((pkt) => onIncomingPacket(pkt, "Online"));
+            }
           })
           .catch(() => {});
       };
@@ -254,7 +290,7 @@
       setInterval(pollServer, 1200);
     }
 
-    // 3. Multi-Broker Serverless WebSocket Relay (Port 443 + 8084 + 8884 for 100% phone/firewall compatibility)
+    // 3. Multi-Broker Serverless WebSocket Relay (Port 443 + 8084 + 8884)
     if (window.mqtt) {
       const BROKERS = [
         "wss://mqtt.eclipseprojects.io:443/mqtt",
@@ -318,6 +354,7 @@
       senderId: state.nodeId,
       senderHandle: state.handle,
       senderColor: state.color,
+      identityTag: state.identityTag,
       verified: state.isVerified,
       lat: state.lat,
       lng: state.lng,
@@ -377,6 +414,17 @@
       state.seenPacketIds.delete(oldest);
     }
 
+    // Anti-Catfish Check: Verify sender's PIN tag matches known name registry
+    if (pkt.senderHandle && pkt.identityTag) {
+      const norm = normalizeName(pkt.senderHandle);
+      const knownTag = knownNames.get(norm);
+      if (knownTag && knownTag !== pkt.identityTag) {
+        logActivity(`Blocked impersonation attempt for "${pkt.senderHandle}"`, "dropped");
+        return;
+      }
+      knownNames.set(norm, pkt.identityTag);
+    }
+
     const distanceMeters = computePeerDistance(pkt.lat, pkt.lng, pkt.hasGps);
     const existing = state.peers.get(pkt.senderId);
 
@@ -385,6 +433,7 @@
       handle: pkt.senderHandle || "Someone",
       initials: getInitials(pkt.senderHandle || "S"),
       color: pkt.senderColor || "#2E7D6B",
+      identityTag: pkt.identityTag || "",
       verified: Boolean(pkt.verified),
       lat: pkt.lat,
       lng: pkt.lng,
@@ -971,14 +1020,14 @@
       dom.meshLogList.innerHTML = `<div class="log-placeholder">Activity cleared.</div>`;
     });
 
-    // Google Auth & Profile Modal
+    // PIN-Protected Real Name & Locked Identity Modal
     function openProfileModal() {
       dom.authErrorBox.classList.add("hidden");
       if (state.isVerified) {
         dom.authSignedOutSection.classList.add("hidden");
         dom.authSignedInSection.classList.remove("hidden");
         dom.verifiedNameHeading.textContent = state.handle;
-        dom.verifiedEmailSub.textContent = state.email;
+        dom.verifiedTagSub.textContent = `Verified PIN Tag #${state.identityTag}`;
         dom.modalAvatarPreview.textContent = getInitials(state.handle);
         dom.modalAvatarPreview.style.background = state.color;
         dom.colorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
@@ -987,13 +1036,30 @@
       } else {
         dom.authSignedOutSection.classList.remove("hidden");
         dom.authSignedInSection.classList.add("hidden");
-        dom.modalAvatarPreview.textContent = "G";
-        dom.modalAvatarPreview.style.background = "#4285F4";
+        dom.modalAvatarPreview.textContent = getInitials(dom.handleInput.value || "ME");
+        dom.modalAvatarPreview.style.background = state.color;
+        dom.claimColorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
+          dot.classList.toggle("selected", dot.dataset.color === state.color);
+        });
+        setTimeout(() => dom.handleInput.focus(), 50);
       }
       dom.profileModal.classList.remove("hidden");
     }
 
     dom.editProfileBtn.addEventListener("click", openProfileModal);
+
+    dom.handleInput.addEventListener("input", () => {
+      dom.modalAvatarPreview.textContent = getInitials(dom.handleInput.value || "ME");
+    });
+
+    dom.claimColorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
+      dot.addEventListener("click", () => {
+        dom.claimColorSwatches.querySelectorAll(".color-dot").forEach((d) => d.classList.remove("selected"));
+        dot.classList.add("selected");
+        state.color = dot.dataset.color;
+        dom.modalAvatarPreview.style.background = state.color;
+      });
+    });
 
     dom.colorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
       dot.addEventListener("click", () => {
@@ -1001,6 +1067,72 @@
         dot.classList.add("selected");
         dom.modalAvatarPreview.style.background = dot.dataset.color;
       });
+    });
+
+    dom.claimIdentityBtn.addEventListener("click", async () => {
+      dom.authErrorBox.classList.add("hidden");
+      const rawName = dom.handleInput.value.trim();
+      const rawPin = dom.pinInput.value.trim();
+
+      if (rawName.length < 2) {
+        dom.authErrorBox.textContent = "Please enter your real name (at least 2 letters).";
+        dom.authErrorBox.classList.remove("hidden");
+        return;
+      }
+
+      if (!/^\d{4}$/.test(rawPin)) {
+        dom.authErrorBox.textContent = "Please enter a 4-digit numeric PIN (e.g. 1234) to protect your name.";
+        dom.authErrorBox.classList.remove("hidden");
+        return;
+      }
+
+      const norm = normalizeName(rawName);
+      const tag = computeIdentityTag(rawName, rawPin);
+
+      // 1. Check local knownNames registry from peers & server
+      const existingTag = knownNames.get(norm);
+      if (existingTag && existingTag !== tag) {
+        dom.authErrorBox.textContent = `"${rawName}" is already claimed and PIN-locked! Enter the matching 4-digit PIN if this is your account, or use your own real name.`;
+        dom.authErrorBox.classList.remove("hidden");
+        return;
+      }
+
+      // 2. Check server / Vercel name registry if available
+      if (hasServerBackend) {
+        try {
+          const resp = await fetch("/api/claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ senderHandle: rawName, identityTag: tag }),
+          });
+          if (resp.status === 409) {
+            const errData = await resp.json();
+            dom.authErrorBox.textContent =
+              errData.message || `"${rawName}" is already PIN-locked by another user.`;
+            dom.authErrorBox.classList.remove("hidden");
+            return;
+          }
+        } catch (e) {}
+      }
+
+      // Lock identity permanently on this device
+      const chosenDot = dom.claimColorSwatches.querySelector(".color-dot.selected");
+      if (chosenDot) {
+        state.color = chosenDot.dataset.color;
+        safeSetStorage("closeby_badge_color", state.color);
+      }
+
+      state.handle = rawName;
+      state.identityTag = tag;
+      state.isVerified = true;
+      knownNames.set(norm, tag);
+
+      safeSetStorage("closeby_locked_name", rawName);
+      safeSetStorage("closeby_identity_tag", tag);
+
+      syncIdentityUI();
+      dom.profileModal.classList.add("hidden");
+      broadcastAnnounce();
     });
 
     dom.saveProfileBtn.addEventListener("click", () => {
@@ -1014,85 +1146,7 @@
       broadcastAnnounce();
     });
 
-    // Initialize Firebase Google Auth
-    let firebaseAuth = null;
-    if (window.firebase) {
-      try {
-        const firebaseConfig = {
-          apiKey: "AIzaSyBEL8lhWfDzkb3I5Npi4OsQ2QACd3DwBRY",
-          authDomain: "simply-collage.firebaseapp.com",
-          projectId: "simply-collage",
-          storageBucket: "simply-collage.firebasestorage.app",
-          messagingSenderId: "399094577345",
-          appId: "1:399094577345:web:b92474cd66432832d07c40",
-        };
-        if (!window.firebase.apps.length) {
-          window.firebase.initializeApp(firebaseConfig);
-        }
-        firebaseAuth = window.firebase.auth();
-
-        firebaseAuth.onAuthStateChanged((user) => {
-          if (user) {
-            const realName = user.displayName || (user.email ? user.email.split("@")[0] : "Verified User");
-            state.handle = realName;
-            state.email = user.email || "";
-            state.googleUid = user.uid;
-            state.isVerified = true;
-            safeSetStorage("closeby_google_name", state.handle);
-            safeSetStorage("closeby_google_email", state.email);
-            safeSetStorage("closeby_google_uid", state.googleUid);
-            syncIdentityUI();
-            dom.profileModal.classList.add("hidden");
-            broadcastAnnounce();
-          }
-        });
-      } catch (e) {
-        console.warn("Firebase init error:", e);
-      }
-    }
-
-    dom.googleSignInBtn.addEventListener("click", async () => {
-      if (!firebaseAuth) {
-        dom.authErrorBox.textContent = "Google Auth failed to load. Please refresh the page.";
-        dom.authErrorBox.classList.remove("hidden");
-        return;
-      }
-      dom.authErrorBox.classList.add("hidden");
-      const provider = new window.firebase.auth.GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      try {
-        await firebaseAuth.signInWithPopup(provider);
-      } catch (err) {
-        if (err && err.code === "auth/unauthorized-domain") {
-          dom.authErrorBox.innerHTML = `Almost ready! Add <strong>${escapeHtml(
-            location.hostname
-          )}</strong> to your Firebase Console → Authentication → Settings → Authorized domains.`;
-          dom.authErrorBox.classList.remove("hidden");
-        } else if (err && err.code !== "auth/popup-closed-by-user") {
-          dom.authErrorBox.textContent = err.message || "Could not sign in with Google.";
-          dom.authErrorBox.classList.remove("hidden");
-        }
-      }
-    });
-
-    dom.signOutBtn.addEventListener("click", async () => {
-      if (firebaseAuth) {
-        try {
-          await firebaseAuth.signOut();
-        } catch (e) {}
-      }
-      state.isVerified = false;
-      state.handle = "Sign In";
-      state.email = "";
-      state.googleUid = "";
-      safeSetStorage("closeby_google_name", "");
-      safeSetStorage("closeby_google_email", "");
-      safeSetStorage("closeby_google_uid", "");
-      syncIdentityUI();
-      openProfileModal();
-    });
-
-    // Require Google Sign-In on first visit
+    // Prompt to claim & lock real name on first visit
     if (!state.isVerified) {
       openProfileModal();
     }
