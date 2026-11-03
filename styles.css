@@ -1063,6 +1063,82 @@ body {
   background: var(--accent-hover);
 }
 
+.google-signin-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #FFFFFF;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 13px 20px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+}
+
+.google-signin-btn:hover {
+  background: var(--bg-page);
+  border-color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.verified-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--sage-soft);
+  color: var(--sage);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-bottom: 10px;
+}
+
+.locked-name-notice {
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.4;
+}
+
+.auth-error-box {
+  margin-top: 12px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(224, 90, 71, 0.3);
+  color: #A83223;
+  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.verified-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--sage);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  margin-left: 3px;
+  vertical-align: middle;
+}
+
 .hidden {
   display: none !important;
 }

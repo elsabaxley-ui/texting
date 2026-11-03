@@ -8,8 +8,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
-  <!-- Serverless Cross-Device Relay for GitHub Pages -->
+  <!-- Serverless Cross-Device Relay for GitHub Pages / Vercel -->
   <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
+  <!-- Firebase Auth for Real Google Sign-In -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 </head>
 <body>
   <div class="app-wrapper">
@@ -203,39 +206,57 @@
     </section>
   </div>
 
-  <!-- ONBOARDING / NAME & INITIALS MODAL -->
+  <!-- GOOGLE AUTH & VERIFIED PROFILE MODAL -->
   <div class="modal-overlay hidden" id="profileModal">
     <div class="modal-sheet">
-      <div class="modal-avatar-preview" id="modalAvatarPreview">EB</div>
-      <h3>What's your name?</h3>
-      <p>Enter your real name or initials so people nearby know who they're texting.</p>
+      <div class="modal-avatar-preview" id="modalAvatarPreview">G</div>
 
-      <div class="form-group">
-        <label for="handleInput">Full Name or Initials</label>
-        <input
-          type="text"
-          id="handleInput"
-          maxlength="28"
-          placeholder="e.g. Elsa Baxley or EB"
-          autocomplete="name"
-        />
+      <!-- STATE A: SIGNED OUT (GOOGLE SIGN-IN REQUIRED) -->
+      <div id="authSignedOutSection">
+        <h3>Sign in to Closeby</h3>
+        <p>
+          To prevent catfishing and fake names, everyone signs in with Google so your real verified name is used.
+        </p>
+
+        <button type="button" class="google-signin-btn" id="googleSignInBtn">
+          <svg class="google-icon" viewBox="0 0 24 24" width="20" height="20">
+            <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
+            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24z"/>
+            <path fill="#FBBC05" d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14z"/>
+            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96z"/>
+          </svg>
+          <span>Continue with Google</span>
+        </button>
+
+        <div class="auth-error-box hidden" id="authErrorBox"></div>
       </div>
 
-      <div class="form-group">
-        <label>Badge Color</label>
-        <div class="color-picker-row" id="colorSwatches">
-          <button type="button" class="color-dot" data-color="#E05A47" style="background:#E05A47"></button>
-          <button type="button" class="color-dot" data-color="#2E7D6B" style="background:#2E7D6B"></button>
-          <button type="button" class="color-dot" data-color="#3B6FD8" style="background:#3B6FD8"></button>
-          <button type="button" class="color-dot" data-color="#D9822B" style="background:#D9822B"></button>
-          <button type="button" class="color-dot" data-color="#8E55EA" style="background:#8E55EA"></button>
-          <button type="button" class="color-dot" data-color="#C94A7C" style="background:#C94A7C"></button>
+      <!-- STATE B: SIGNED IN (LOCKED VERIFIED GOOGLE IDENTITY) -->
+      <div id="authSignedInSection" class="hidden">
+        <div class="verified-badge-pill">✓ Verified Google Identity</div>
+        <h3 id="verifiedNameHeading">Elsa Baxley</h3>
+        <p id="verifiedEmailSub">elsa@example.com</p>
+
+        <div class="locked-name-notice">
+          🔒 Your display name is locked to your Google account so no one can impersonate you.
         </div>
-      </div>
 
-      <div class="modal-buttons">
-        <button type="button" class="btn-ghost" id="closeModalBtn">Cancel</button>
-        <button type="button" class="btn-solid" id="saveProfileBtn">Save &amp; Continue</button>
+        <div class="form-group">
+          <label>Badge Color</label>
+          <div class="color-picker-row" id="colorSwatches">
+            <button type="button" class="color-dot" data-color="#E05A47" style="background:#E05A47"></button>
+            <button type="button" class="color-dot" data-color="#2E7D6B" style="background:#2E7D6B"></button>
+            <button type="button" class="color-dot" data-color="#3B6FD8" style="background:#3B6FD8"></button>
+            <button type="button" class="color-dot" data-color="#D9822B" style="background:#D9822B"></button>
+            <button type="button" class="color-dot" data-color="#8E55EA" style="background:#8E55EA"></button>
+            <button type="button" class="color-dot" data-color="#C94A7C" style="background:#C94A7C"></button>
+          </div>
+        </div>
+
+        <div class="modal-buttons">
+          <button type="button" class="btn-ghost" id="signOutBtn">Sign Out</button>
+          <button type="button" class="btn-solid" id="saveProfileBtn">Done</button>
+        </div>
       </div>
     </div>
   </div>

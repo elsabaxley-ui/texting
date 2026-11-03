@@ -45,7 +45,9 @@
     savedId = "closeby_peer_" + Math.random().toString(36).substring(2, 9);
   }
 
-  const savedHandle = safeGetStorage("closeby_real_name");
+  const savedHandle = safeGetStorage("closeby_google_name");
+  const savedEmail = safeGetStorage("closeby_google_email");
+  const savedUid = safeGetStorage("closeby_google_uid");
   const savedColor =
     safeGetStorage("closeby_badge_color") || PALETTE[Math.floor(Math.random() * PALETTE.length)];
 
@@ -54,8 +56,10 @@
 
   const state = {
     nodeId: savedId,
-    handle: savedHandle || "Elsa B.",
-    hasCustomName: Boolean(savedHandle),
+    handle: savedHandle || "Sign In",
+    email: savedEmail || "",
+    googleUid: savedUid || "",
+    isVerified: Boolean(savedUid && savedHandle),
     color: savedColor,
     lat: BASE_LAT,
     lng: BASE_LNG,
@@ -66,7 +70,7 @@
     activeMainView: "chat", // 'chat' | 'radar'
     activeThread: "nearby", // 'nearby' or peerId for 1-on-1 DM
     unreadByPeer: new Map(), // peerId -> count
-    peers: new Map(), // nodeId -> { nodeId, handle, initials, color, lat, lng, distance, lastSeen, via }
+    peers: new Map(), // nodeId -> { nodeId, handle, initials, color, lat, lng, distance, lastSeen, via, verified }
     seenPacketIds: new Set(),
     messages: [],
     radarAngle: 0,
@@ -182,9 +186,14 @@
     clearLogBtn: document.getElementById("clearLogBtn"),
     profileModal: document.getElementById("profileModal"),
     modalAvatarPreview: document.getElementById("modalAvatarPreview"),
-    handleInput: document.getElementById("handleInput"),
+    authSignedOutSection: document.getElementById("authSignedOutSection"),
+    authSignedInSection: document.getElementById("authSignedInSection"),
+    googleSignInBtn: document.getElementById("googleSignInBtn"),
+    authErrorBox: document.getElementById("authErrorBox"),
+    verifiedNameHeading: document.getElementById("verifiedNameHeading"),
+    verifiedEmailSub: document.getElementById("verifiedEmailSub"),
     colorSwatches: document.getElementById("colorSwatches"),
-    closeModalBtn: document.getElementById("closeModalBtn"),
+    signOutBtn: document.getElementById("signOutBtn"),
     saveProfileBtn: document.getElementById("saveProfileBtn"),
   };
 
@@ -309,6 +318,7 @@
       senderId: state.nodeId,
       senderHandle: state.handle,
       senderColor: state.color,
+      verified: state.isVerified,
       lat: state.lat,
       lng: state.lng,
       hasGps: state.usingRealGps,
@@ -375,6 +385,7 @@
       handle: pkt.senderHandle || "Someone",
       initials: getInitials(pkt.senderHandle || "S"),
       color: pkt.senderColor || "#2E7D6B",
+      verified: Boolean(pkt.verified),
       lat: pkt.lat,
       lng: pkt.lng,
       hasGps: Boolean(pkt.hasGps),
@@ -433,6 +444,7 @@
         senderId: pkt.senderId,
         senderHandle: pkt.senderHandle,
         senderColor: pkt.senderColor,
+        verified: Boolean(pkt.verified),
         text: pkt.payload.text,
         isCheckin: pkt.type === "FLARE",
         distance: distanceMeters,
@@ -448,6 +460,7 @@
         senderId: pkt.senderId,
         senderHandle: pkt.senderHandle,
         senderColor: pkt.senderColor,
+        verified: Boolean(pkt.verified),
         text: pkt.payload.text,
         distance: distanceMeters,
         hops: pkt.hops || 1,
@@ -467,6 +480,7 @@
   }
 
   function broadcastAnnounce() {
+    if (!state.isVerified) return;
     const pkt = createPacket("ANNOUNCE", { status: "online" }, null, 1);
     transmitPacket(pkt);
   }
@@ -605,11 +619,12 @@
       const unread = state.unreadByPeer.get(p.nodeId) || 0;
       const btn = document.createElement("button");
       btn.className = `convo-item ${state.activeThread === p.nodeId ? "active" : ""}`;
+      const vBadge = p.verified ? `<span class="verified-check" title="Verified Google Account">✓</span>` : "";
       btn.innerHTML = `
         <div class="convo-avatar" style="background:${p.color}">${escapeHtml(p.initials)}</div>
         <div class="convo-info">
           <div class="convo-top">
-            <span class="convo-name">${escapeHtml(p.handle)}</span>
+            <span class="convo-name">${escapeHtml(p.handle)}${vBadge}</span>
             <span class="dist-chip ${inRange ? "" : "outside"}">${formatDistance(p.distance)}</span>
           </div>
           <div class="convo-preview">
@@ -665,11 +680,16 @@
       const hopBadge =
         (m.hops || 1) > 1 ? `<span class="meta-pill hop">${m.hops} hops</span>` : "";
 
+      const vCheck =
+        m.verified || (m.mine && state.isVerified)
+          ? `<span class="verified-check" title="Verified Google Account">✓</span>`
+          : "";
+
       group.innerHTML = `
         <div class="msg-avatar" style="background:${m.senderColor}">${escapeHtml(initials)}</div>
         <div class="msg-content">
           <div class="msg-header-meta">
-            <span class="msg-sender-name">${escapeHtml(m.mine ? "You" : m.senderHandle)}</span>
+            <span class="msg-sender-name">${escapeHtml(m.mine ? "You" : m.senderHandle)}${vCheck}</span>
             ${distBadge}
             ${hopBadge}
             <span>${timeStr}</span>
@@ -849,6 +869,10 @@
     // Send Message
     dom.messageForm.addEventListener("submit", (e) => {
       e.preventDefault();
+      if (!state.isVerified) {
+        openProfileModal();
+        return;
+      }
       const text = dom.messageInput.value.trim();
       if (!text) return;
 
@@ -861,6 +885,7 @@
           senderId: state.nodeId,
           senderHandle: state.handle,
           senderColor: state.color,
+          verified: true,
           text,
           distance: 0,
           hops: 1,
@@ -877,6 +902,7 @@
           senderId: state.nodeId,
           senderHandle: state.handle,
           senderColor: state.color,
+          verified: true,
           text,
           distance: 0,
           hops: 1,
@@ -890,6 +916,10 @@
 
     // Check-in button
     dom.shareLocationBtn.addEventListener("click", () => {
+      if (!state.isVerified) {
+        openProfileModal();
+        return;
+      }
       const gh = encodeGeohash(state.lat, state.lng, 7);
       const text = `📍 Checked in near zone #${gh}`;
       const pkt = createPacket("FLARE", { text }, null, 3);
@@ -900,6 +930,7 @@
         senderId: state.nodeId,
         senderHandle: state.handle,
         senderColor: state.color,
+        verified: true,
         text,
         isCheckin: true,
         distance: 0,
@@ -922,6 +953,10 @@
     });
 
     dom.sendPingBtn.addEventListener("click", () => {
+      if (!state.isVerified) {
+        openProfileModal();
+        return;
+      }
       state.radarPulses.push({ r: 0, color: state.color });
       const pkt = createPacket("PING", {}, null, 2);
       transmitPacket(pkt);
@@ -936,23 +971,29 @@
       dom.meshLogList.innerHTML = `<div class="log-placeholder">Activity cleared.</div>`;
     });
 
-    // Profile / Real Name & Initials Modal
+    // Google Auth & Profile Modal
     function openProfileModal() {
-      dom.handleInput.value = state.handle;
-      dom.modalAvatarPreview.textContent = getInitials(state.handle);
-      dom.modalAvatarPreview.style.background = state.color;
-      dom.colorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
-        dot.classList.toggle("selected", dot.dataset.color === state.color);
-      });
+      dom.authErrorBox.classList.add("hidden");
+      if (state.isVerified) {
+        dom.authSignedOutSection.classList.add("hidden");
+        dom.authSignedInSection.classList.remove("hidden");
+        dom.verifiedNameHeading.textContent = state.handle;
+        dom.verifiedEmailSub.textContent = state.email;
+        dom.modalAvatarPreview.textContent = getInitials(state.handle);
+        dom.modalAvatarPreview.style.background = state.color;
+        dom.colorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
+          dot.classList.toggle("selected", dot.dataset.color === state.color);
+        });
+      } else {
+        dom.authSignedOutSection.classList.remove("hidden");
+        dom.authSignedInSection.classList.add("hidden");
+        dom.modalAvatarPreview.textContent = "G";
+        dom.modalAvatarPreview.style.background = "#4285F4";
+      }
       dom.profileModal.classList.remove("hidden");
-      setTimeout(() => dom.handleInput.focus(), 50);
     }
 
     dom.editProfileBtn.addEventListener("click", openProfileModal);
-
-    dom.handleInput.addEventListener("input", () => {
-      dom.modalAvatarPreview.textContent = getInitials(dom.handleInput.value || state.handle);
-    });
 
     dom.colorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
       dot.addEventListener("click", () => {
@@ -962,18 +1003,8 @@
       });
     });
 
-    dom.closeModalBtn.addEventListener("click", () => {
-      dom.profileModal.classList.add("hidden");
-    });
-
     dom.saveProfileBtn.addEventListener("click", () => {
-      const val = dom.handleInput.value.trim();
       const chosenDot = dom.colorSwatches.querySelector(".color-dot.selected");
-      if (val) {
-        state.handle = val;
-        state.hasCustomName = true;
-        safeSetStorage("closeby_real_name", val);
-      }
       if (chosenDot) {
         state.color = chosenDot.dataset.color;
         safeSetStorage("closeby_badge_color", state.color);
@@ -983,8 +1014,86 @@
       broadcastAnnounce();
     });
 
-    // Prompt for real name or initials on very first visit
-    if (!state.hasCustomName) {
+    // Initialize Firebase Google Auth
+    let firebaseAuth = null;
+    if (window.firebase) {
+      try {
+        const firebaseConfig = {
+          apiKey: "AIzaSyBEL8lhWfDzkb3I5Npi4OsQ2QACd3DwBRY",
+          authDomain: "simply-collage.firebaseapp.com",
+          projectId: "simply-collage",
+          storageBucket: "simply-collage.firebasestorage.app",
+          messagingSenderId: "399094577345",
+          appId: "1:399094577345:web:b92474cd66432832d07c40",
+        };
+        if (!window.firebase.apps.length) {
+          window.firebase.initializeApp(firebaseConfig);
+        }
+        firebaseAuth = window.firebase.auth();
+
+        firebaseAuth.onAuthStateChanged((user) => {
+          if (user) {
+            const realName = user.displayName || (user.email ? user.email.split("@")[0] : "Verified User");
+            state.handle = realName;
+            state.email = user.email || "";
+            state.googleUid = user.uid;
+            state.isVerified = true;
+            safeSetStorage("closeby_google_name", state.handle);
+            safeSetStorage("closeby_google_email", state.email);
+            safeSetStorage("closeby_google_uid", state.googleUid);
+            syncIdentityUI();
+            dom.profileModal.classList.add("hidden");
+            broadcastAnnounce();
+          }
+        });
+      } catch (e) {
+        console.warn("Firebase init error:", e);
+      }
+    }
+
+    dom.googleSignInBtn.addEventListener("click", async () => {
+      if (!firebaseAuth) {
+        dom.authErrorBox.textContent = "Google Auth failed to load. Please refresh the page.";
+        dom.authErrorBox.classList.remove("hidden");
+        return;
+      }
+      dom.authErrorBox.classList.add("hidden");
+      const provider = new window.firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      try {
+        await firebaseAuth.signInWithPopup(provider);
+      } catch (err) {
+        if (err && err.code === "auth/unauthorized-domain") {
+          dom.authErrorBox.innerHTML = `Almost ready! Add <strong>${escapeHtml(
+            location.hostname
+          )}</strong> to your Firebase Console → Authentication → Settings → Authorized domains.`;
+          dom.authErrorBox.classList.remove("hidden");
+        } else if (err && err.code !== "auth/popup-closed-by-user") {
+          dom.authErrorBox.textContent = err.message || "Could not sign in with Google.";
+          dom.authErrorBox.classList.remove("hidden");
+        }
+      }
+    });
+
+    dom.signOutBtn.addEventListener("click", async () => {
+      if (firebaseAuth) {
+        try {
+          await firebaseAuth.signOut();
+        } catch (e) {}
+      }
+      state.isVerified = false;
+      state.handle = "Sign In";
+      state.email = "";
+      state.googleUid = "";
+      safeSetStorage("closeby_google_name", "");
+      safeSetStorage("closeby_google_email", "");
+      safeSetStorage("closeby_google_uid", "");
+      syncIdentityUI();
+      openProfileModal();
+    });
+
+    // Require Google Sign-In on first visit
+    if (!state.isVerified) {
       openProfileModal();
     }
   }
