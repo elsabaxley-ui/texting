@@ -66,8 +66,35 @@
     return ((h1 >>> 0) & 0xffff).toString(16).toUpperCase().padStart(4, "0");
   }
 
+  // Compress & center-crop any uploaded image file to a fast 96x96 JPEG data URL (~2.5 KB)
+  function resizeImageToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const size = 96;
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext("2d");
+          const minSide = Math.min(img.width, img.height);
+          const sx = (img.width - minSide) / 2;
+          const sy = (img.height - minSide) / 2;
+          ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+          resolve(canvas.toDataURL("image/jpeg", 0.78));
+        };
+        img.onerror = reject;
+        img.src = ev.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
   const savedHandle = safeGetStorage("closeby_locked_name");
   const savedTag = safeGetStorage("closeby_identity_tag");
+  const savedAvatar = safeGetStorage("closeby_avatar_url");
   const savedColor =
     safeGetStorage("closeby_badge_color") || PALETTE[Math.floor(Math.random() * PALETTE.length)];
 
@@ -84,6 +111,7 @@
     handle: savedHandle || "Set Name",
     identityTag: savedTag || "",
     isVerified: Boolean(savedHandle && savedTag),
+    avatar: savedAvatar || "",
     color: savedColor,
     lat: BASE_LAT,
     lng: BASE_LNG,
@@ -94,7 +122,7 @@
     activeMainView: "chat", // 'chat' | 'radar'
     activeThread: "nearby", // 'nearby' or peerId for 1-on-1 DM
     unreadByPeer: new Map(), // peerId -> count
-    peers: new Map(), // nodeId -> { nodeId, handle, initials, color, lat, lng, distance, lastSeen, via, verified }
+    peers: new Map(), // nodeId -> { nodeId, handle, initials, color, avatar, lat, lng, distance, lastSeen, via, verified }
     seenPacketIds: new Set(),
     messages: [],
     radarAngle: 0,
@@ -210,6 +238,8 @@
     clearLogBtn: document.getElementById("clearLogBtn"),
     profileModal: document.getElementById("profileModal"),
     modalAvatarPreview: document.getElementById("modalAvatarPreview"),
+    avatarFileInput: document.getElementById("avatarFileInput"),
+    removePhotoBtn: document.getElementById("removePhotoBtn"),
     authSignedOutSection: document.getElementById("authSignedOutSection"),
     authSignedInSection: document.getElementById("authSignedInSection"),
     handleInput: document.getElementById("handleInput"),
@@ -354,6 +384,7 @@
       senderId: state.nodeId,
       senderHandle: state.handle,
       senderColor: state.color,
+      senderAvatar: state.avatar || "",
       identityTag: state.identityTag,
       verified: state.isVerified,
       lat: state.lat,
@@ -433,6 +464,7 @@
       handle: pkt.senderHandle || "Someone",
       initials: getInitials(pkt.senderHandle || "S"),
       color: pkt.senderColor || "#2E7D6B",
+      avatar: pkt.senderAvatar || (existing && existing.avatar) || "",
       identityTag: pkt.identityTag || "",
       verified: Boolean(pkt.verified),
       lat: pkt.lat,
@@ -493,6 +525,7 @@
         senderId: pkt.senderId,
         senderHandle: pkt.senderHandle,
         senderColor: pkt.senderColor,
+        senderAvatar: pkt.senderAvatar || (existing && existing.avatar) || "",
         verified: Boolean(pkt.verified),
         text: pkt.payload.text,
         isCheckin: pkt.type === "FLARE",
@@ -509,6 +542,7 @@
         senderId: pkt.senderId,
         senderHandle: pkt.senderHandle,
         senderColor: pkt.senderColor,
+        senderAvatar: pkt.senderAvatar || (existing && existing.avatar) || "",
         verified: Boolean(pkt.verified),
         text: pkt.payload.text,
         distance: distanceMeters,
@@ -549,13 +583,32 @@
   }
 
   // --- UI UPDATES ---
+  function renderAvatarBox(el, avatarUrl, initials, color) {
+    if (!el) return;
+    if (avatarUrl && avatarUrl.startsWith("data:image/")) {
+      el.innerHTML = `<img src="${avatarUrl}" class="avatar-img" alt="" />`;
+      el.style.background = "transparent";
+    } else {
+      el.textContent = initials;
+      el.style.background = color;
+    }
+  }
+
+  function avatarInnerHtml(avatarUrl, initials) {
+    if (avatarUrl && avatarUrl.startsWith("data:image/")) {
+      return `<img src="${avatarUrl}" class="avatar-img" alt="" />`;
+    }
+    return escapeHtml(initials);
+  }
+
   function syncIdentityUI() {
     const initials = getInitials(state.handle);
-    dom.myAvatarBadge.textContent = initials;
-    dom.myAvatarBadge.style.background = state.color;
+    renderAvatarBox(dom.myAvatarBadge, state.avatar, initials, state.color);
     dom.myHandleDisplay.textContent = state.handle;
-    dom.modalAvatarPreview.textContent = initials;
-    dom.modalAvatarPreview.style.background = state.color;
+    renderAvatarBox(dom.modalAvatarPreview, state.avatar, initials, state.color);
+    if (dom.removePhotoBtn) {
+      dom.removePhotoBtn.classList.toggle("hidden", !state.avatar);
+    }
   }
 
   function updateLocationReadout() {
@@ -628,8 +681,12 @@
       const initials = peer ? peer.initials : getInitials(name);
       const distStr = peer ? `${formatDistance(peer.distance)} away` : "Nearby";
 
-      dom.activeThreadAvatar.textContent = initials;
-      dom.activeThreadAvatar.style.background = peer ? peer.color : "var(--sage)";
+      renderAvatarBox(
+        dom.activeThreadAvatar,
+        peer ? peer.avatar : "",
+        initials,
+        peer ? peer.color : "var(--sage)"
+      );
       dom.activeThreadAvatar.style.color = "#fff";
       dom.activeThreadTitle.textContent = name;
       dom.activeThreadSubtitle.textContent = `Direct message • ${distStr}`;
@@ -668,9 +725,9 @@
       const unread = state.unreadByPeer.get(p.nodeId) || 0;
       const btn = document.createElement("button");
       btn.className = `convo-item ${state.activeThread === p.nodeId ? "active" : ""}`;
-      const vBadge = p.verified ? `<span class="verified-check" title="Verified Google Account">✓</span>` : "";
+      const vBadge = p.verified ? `<span class="verified-check" title="PIN-Protected Identity">✓</span>` : "";
       btn.innerHTML = `
-        <div class="convo-avatar" style="background:${p.color}">${escapeHtml(p.initials)}</div>
+        <div class="convo-avatar" style="background:${p.color}">${avatarInnerHtml(p.avatar, p.initials)}</div>
         <div class="convo-info">
           <div class="convo-top">
             <span class="convo-name">${escapeHtml(p.handle)}${vBadge}</span>
@@ -724,6 +781,8 @@
       group.className = `msg-group ${m.mine ? "mine" : "theirs"}`;
 
       const initials = getInitials(m.senderHandle);
+      const peerObj = state.peers.get(m.senderId);
+      const avatarSrc = m.mine ? state.avatar : m.senderAvatar || (peerObj && peerObj.avatar) || "";
       const timeStr = new Date(m.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
       const distBadge = m.mine ? "" : `<span class="meta-pill">${formatDistance(m.distance || 0)}</span>`;
       const hopBadge =
@@ -731,11 +790,11 @@
 
       const vCheck =
         m.verified || (m.mine && state.isVerified)
-          ? `<span class="verified-check" title="Verified Google Account">✓</span>`
+          ? `<span class="verified-check" title="PIN-Protected Identity">✓</span>`
           : "";
 
       group.innerHTML = `
-        <div class="msg-avatar" style="background:${m.senderColor}">${escapeHtml(initials)}</div>
+        <div class="msg-avatar" style="background:${m.senderColor}">${avatarInnerHtml(avatarSrc, initials)}</div>
         <div class="msg-content">
           <div class="msg-header-meta">
             <span class="msg-sender-name">${escapeHtml(m.mine ? "You" : m.senderHandle)}${vCheck}</span>
@@ -934,6 +993,7 @@
           senderId: state.nodeId,
           senderHandle: state.handle,
           senderColor: state.color,
+          senderAvatar: state.avatar,
           verified: true,
           text,
           distance: 0,
@@ -951,6 +1011,7 @@
           senderId: state.nodeId,
           senderHandle: state.handle,
           senderColor: state.color,
+          senderAvatar: state.avatar,
           verified: true,
           text,
           distance: 0,
@@ -979,6 +1040,7 @@
         senderId: state.nodeId,
         senderHandle: state.handle,
         senderColor: state.color,
+        senderAvatar: state.avatar,
         verified: true,
         text,
         isCheckin: true,
@@ -1028,28 +1090,65 @@
         dom.authSignedInSection.classList.remove("hidden");
         dom.verifiedNameHeading.textContent = state.handle;
         dom.verifiedTagSub.textContent = `Verified PIN Tag #${state.identityTag}`;
-        dom.modalAvatarPreview.textContent = getInitials(state.handle);
-        dom.modalAvatarPreview.style.background = state.color;
+        renderAvatarBox(dom.modalAvatarPreview, state.avatar, getInitials(state.handle), state.color);
         dom.colorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
           dot.classList.toggle("selected", dot.dataset.color === state.color);
         });
       } else {
         dom.authSignedOutSection.classList.remove("hidden");
         dom.authSignedInSection.classList.add("hidden");
-        dom.modalAvatarPreview.textContent = getInitials(dom.handleInput.value || "ME");
-        dom.modalAvatarPreview.style.background = state.color;
+        renderAvatarBox(
+          dom.modalAvatarPreview,
+          state.avatar,
+          getInitials(dom.handleInput.value || "ME"),
+          state.color
+        );
         dom.claimColorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
           dot.classList.toggle("selected", dot.dataset.color === state.color);
         });
         setTimeout(() => dom.handleInput.focus(), 50);
+      }
+      if (dom.removePhotoBtn) {
+        dom.removePhotoBtn.classList.toggle("hidden", !state.avatar);
       }
       dom.profileModal.classList.remove("hidden");
     }
 
     dom.editProfileBtn.addEventListener("click", openProfileModal);
 
+    // Profile Photo Upload & Removal
+    if (dom.avatarFileInput) {
+      dom.avatarFileInput.addEventListener("change", async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const dataUrl = await resizeImageToDataUrl(file);
+          state.avatar = dataUrl;
+          safeSetStorage("closeby_avatar_url", dataUrl);
+          syncIdentityUI();
+          renderMessages();
+          broadcastAnnounce();
+        } catch (err) {
+          alert("Could not load that image file. Please try another photo.");
+        }
+        dom.avatarFileInput.value = "";
+      });
+    }
+
+    if (dom.removePhotoBtn) {
+      dom.removePhotoBtn.addEventListener("click", () => {
+        state.avatar = "";
+        safeSetStorage("closeby_avatar_url", "");
+        syncIdentityUI();
+        renderMessages();
+        broadcastAnnounce();
+      });
+    }
+
     dom.handleInput.addEventListener("input", () => {
-      dom.modalAvatarPreview.textContent = getInitials(dom.handleInput.value || "ME");
+      if (!state.avatar) {
+        dom.modalAvatarPreview.textContent = getInitials(dom.handleInput.value || "ME");
+      }
     });
 
     dom.claimColorSwatches.querySelectorAll(".color-dot").forEach((dot) => {
@@ -1057,7 +1156,9 @@
         dom.claimColorSwatches.querySelectorAll(".color-dot").forEach((d) => d.classList.remove("selected"));
         dot.classList.add("selected");
         state.color = dot.dataset.color;
-        dom.modalAvatarPreview.style.background = state.color;
+        if (!state.avatar) {
+          dom.modalAvatarPreview.style.background = state.color;
+        }
       });
     });
 
@@ -1065,7 +1166,9 @@
       dot.addEventListener("click", () => {
         dom.colorSwatches.querySelectorAll(".color-dot").forEach((d) => d.classList.remove("selected"));
         dot.classList.add("selected");
-        dom.modalAvatarPreview.style.background = dot.dataset.color;
+        if (!state.avatar) {
+          dom.modalAvatarPreview.style.background = dot.dataset.color;
+        }
       });
     });
 

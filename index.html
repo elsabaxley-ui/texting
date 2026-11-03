@@ -206,7 +206,14 @@
   <!-- PIN-PROTECTED REAL NAME & LOCKED PROFILE MODAL -->
   <div class="modal-overlay hidden" id="profileModal">
     <div class="modal-sheet">
-      <div class="modal-avatar-preview" id="modalAvatarPreview">ME</div>
+      <div class="avatar-upload-area">
+        <div class="modal-avatar-preview" id="modalAvatarPreview">ME</div>
+        <div class="avatar-upload-actions">
+          <label for="avatarFileInput" class="photo-upload-btn">📷 Upload Profile Photo</label>
+          <input type="file" id="avatarFileInput" accept="image/*" class="hidden" />
+          <button type="button" class="photo-remove-btn hidden" id="removePhotoBtn">Remove</button>
+        </div>
+      </div>
 
       <!-- STATE A: FIRST-TIME NAME + 4-DIGIT PIN CLAIM -->
       <div id="authSignedOutSection">
