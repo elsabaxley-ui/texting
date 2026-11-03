@@ -40,7 +40,7 @@
 
       <!-- USER PROFILE PILL -->
       <button class="profile-trigger" id="editProfileBtn" title="Edit your name or initials">
-        <span class="initial-avatar" id="myAvatarBadge">EB</span>
+        <span class="initial-avatar" id="myAvatarBadge">ME</span>
         <span class="profile-name" id="myHandleDisplay">Set Name</span>
       </button>
     </header>
@@ -206,7 +206,7 @@
   <!-- PIN-PROTECTED REAL NAME & LOCKED PROFILE MODAL -->
   <div class="modal-overlay hidden" id="profileModal">
     <div class="modal-sheet">
-      <div class="modal-avatar-preview" id="modalAvatarPreview">EB</div>
+      <div class="modal-avatar-preview" id="modalAvatarPreview">ME</div>
 
       <!-- STATE A: FIRST-TIME NAME + 4-DIGIT PIN CLAIM -->
       <div id="authSignedOutSection">
@@ -221,7 +221,7 @@
             type="text"
             id="handleInput"
             maxlength="28"
-            placeholder="e.g. Elsa Baxley"
+            placeholder="e.g. Alex Morgan"
             autocomplete="name"
           />
         </div>
@@ -261,7 +261,7 @@
       <!-- STATE B: LOCKED IDENTITY (NO NAME CHANGING ALLOWED) -->
       <div id="authSignedInSection" class="hidden">
         <div class="verified-badge-pill">🔒 PIN-Protected Identity</div>
-        <h3 id="verifiedNameHeading">Elsa Baxley</h3>
+        <h3 id="verifiedNameHeading">Your Name</h3>
         <p id="verifiedTagSub">Verified Tag #4F8A</p>
 
         <div class="locked-name-notice">
